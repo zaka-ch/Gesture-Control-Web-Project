@@ -1,5 +1,6 @@
 import React from 'react';
-import { Settings, GestureName, DEFAULT_SETTINGS } from '../types';
+import { DEFAULT_SETTINGS } from '../types';
+import type { Settings, GestureName } from '../types';
 
 interface SettingsPanelProps {
   settings: Settings;

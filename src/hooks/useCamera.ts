@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { initMediaPipe, stopMediaPipe } from '../lib/mediapipe';
-import { Landmark } from '../types';
+import type { Landmark } from '../types';
 
 interface UseCameraOptions {
   onLandmarks: (lm: Landmark[]) => void;

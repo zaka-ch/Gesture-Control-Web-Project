@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useCamera } from '../hooks/useCamera';
-import { Landmark } from '../types';
+import type { Landmark } from '../types';
 
 interface CameraViewProps {
   onLandmarks: (lm: Landmark[], w: number, h: number) => void;

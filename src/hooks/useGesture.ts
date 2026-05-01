@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback } from 'react';
 import { classifyGesture } from '../lib/classifier';
 import { GestureSmoother } from '../lib/smoother';
-import { Landmark, GestureResult, GestureName, Settings } from '../types';
+import type { Landmark, GestureResult, GestureName, Settings } from '../types';
 
 export function useGesture(settings: Settings) {
   const smootherRef = useRef(new GestureSmoother(settings.bufferSize));

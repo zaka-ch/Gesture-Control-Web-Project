@@ -1,4 +1,4 @@
-import { Landmark } from '../types';
+import type { Landmark } from '../types';
 
 // ─────────────────────────────────────────────
 // MediaPipe Hands initialisation + camera loop

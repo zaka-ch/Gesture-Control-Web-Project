@@ -1,5 +1,5 @@
 import React from 'react';
-import { GestureResult, GestureName } from '../types';
+import type { GestureResult, GestureName } from '../types';
 
 interface GestureHUDProps {
   result: GestureResult;

@@ -1,4 +1,4 @@
-import { GestureName, GestureResult } from '../types';
+import type { GestureName, GestureResult } from '../types';
 
 // ─────────────────────────────────────────────
 // Rolling-buffer gesture smoother

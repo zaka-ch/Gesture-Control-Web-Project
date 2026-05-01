@@ -3,11 +3,7 @@
 // ─────────────────────────────────────────────
 
 /** A single 3-D landmark point from MediaPipe Hands */
-export interface Landmark {
-  x: number; // normalized 0–1
-  y: number; // normalized 0–1
-  z: number; // relative depth
-}
+export type Landmark = { x: number; y: number; z: number };
 
 /** All 5 supported gesture names */
 export type GestureName =

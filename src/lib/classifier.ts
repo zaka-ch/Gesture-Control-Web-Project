@@ -1,4 +1,4 @@
-import { Landmark, GestureName } from '../types';
+import type { Landmark, GestureName } from '../types';
 
 // ─────────────────────────────────────────────
 // Pure gesture classifier — landmarks → GestureName
