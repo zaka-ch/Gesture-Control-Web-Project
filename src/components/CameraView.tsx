@@ -11,15 +11,13 @@ interface CameraViewProps {
 const CameraView: React.FC<CameraViewProps> = ({ onLandmarks, onError, isRunning }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleLandmarks = (lm: Landmark[]) => {
-    const video = videoRef.current;
-    const w = video?.videoWidth || 640;
-    const h = video?.videoHeight || 480;
-    onLandmarks(lm, w, h);
-  };
-
   const { videoRef, canvasRef, start, stop } = useCamera({
-    onLandmarks: handleLandmarks,
+    onLandmarks: (lm: Landmark[]) => {
+      const video = videoRef.current;
+      const w = video?.videoWidth || 640;
+      const h = video?.videoHeight || 480;
+      onLandmarks(lm, w, h);
+    },
     onError,
   });
 
