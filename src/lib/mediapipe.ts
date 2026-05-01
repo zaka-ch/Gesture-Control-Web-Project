@@ -10,9 +10,9 @@ export interface MediaPipeCallbacks {
   onResults: (landmarks: Landmark[], worldLandmarks: Landmark[]) => void;
 }
 
+// Keep as singletons to prevent Emscripten FileSystem crashes (ErrnoError EEXIST)
 let handsInstance: any = null;
 let cameraInstance: any = null;
-
 let isInitializing = false;
 
 /** Initialise MediaPipe Hands and start the camera loop. */
@@ -24,55 +24,62 @@ export async function initMediaPipe(
   isInitializing = true;
   
   try {
-    // Wait for MediaPipe globals to be available (CDN load delay)
+    // Wait for MediaPipe globals to be available
     await waitForMediaPipe();
 
-    // Tear down any existing instance
-    stopMediaPipe();
-
-  handsInstance = new window.Hands({
-    locateFile: (file: string) =>
-      `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
-  });
-
-  handsInstance.setOptions({
-    maxNumHands: 1,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.7,
-    minTrackingConfidence: 0.5,
-  });
-
-  handsInstance.onResults((results: any) => {
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      const lm: Landmark[] = results.multiHandLandmarks[0];
-      const wlm: Landmark[] = results.multiHandWorldLandmarks?.[0] ?? [];
-      callbacks.onResults(lm, wlm);
-    } else {
-      callbacks.onResults([], []);
+    // Stop existing camera if running, but KEEP handsInstance alive!
+    if (cameraInstance) {
+      try { cameraInstance.stop(); } catch (_) {}
+      cameraInstance = null;
     }
-  });
 
-  await handsInstance.initialize();
+    // Only instantiate Hands once per page load to avoid WASM aborts
+    if (!handsInstance) {
+      handsInstance = new window.Hands({
+        locateFile: (file: string) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+      });
 
-  let isProcessing = false;
-  cameraInstance = new window.Camera(videoEl, {
-    onFrame: async () => {
-      if (handsInstance && !isProcessing) {
-        isProcessing = true;
-        try {
-          await handsInstance.send({ image: videoEl });
-        } catch (e) {
-          console.error('MediaPipe Error:', e);
-        } finally {
-          isProcessing = false;
-        }
+      handsInstance.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.5,
+      });
+
+      await handsInstance.initialize();
+    }
+
+    // Always update the callback to the latest one
+    handsInstance.onResults((results: any) => {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const lm: Landmark[] = results.multiHandLandmarks[0];
+        const wlm: Landmark[] = results.multiHandWorldLandmarks?.[0] ?? [];
+        callbacks.onResults(lm, wlm);
+      } else {
+        callbacks.onResults([], []);
       }
-    },
-    width: 1280,
-    height: 720,
-  });
+    });
 
-  await cameraInstance.start();
+    let isProcessing = false;
+    cameraInstance = new window.Camera(videoEl, {
+      onFrame: async () => {
+        if (handsInstance && !isProcessing) {
+          isProcessing = true;
+          try {
+            await handsInstance.send({ image: videoEl });
+          } catch (e) {
+            console.error('MediaPipe Error:', e);
+          } finally {
+            isProcessing = false;
+          }
+        }
+      },
+      width: 1280,
+      height: 720,
+    });
+
+    await cameraInstance.start();
   } finally {
     isInitializing = false;
   }
@@ -80,13 +87,10 @@ export async function initMediaPipe(
 
 /** Stop the camera and MediaPipe loop. */
 export function stopMediaPipe(): void {
+  // Only stop the camera, leave handsInstance initialized to prevent WASM FS errors
   if (cameraInstance) {
     try { cameraInstance.stop(); } catch (_) {}
     cameraInstance = null;
-  }
-  if (handsInstance) {
-    try { handsInstance.close(); } catch (_) {}
-    handsInstance = null;
   }
 }
 
