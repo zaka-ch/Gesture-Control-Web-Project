@@ -3,9 +3,9 @@ import CameraView from './components/CameraView';
 import GestureHUD from './components/GestureHUD';
 import SettingsPanel from './components/SettingsPanel';
 import { useGesture } from './hooks/useGesture';
-import { Settings, DEFAULT_SETTINGS, Landmark, GestureResult } from './types';
+import { Settings, DEFAULT_SETTINGS } from './types';
 
-const INITIAL_RESULT: GestureResult = {
+const INITIAL_RESULT = {
   gesture: 'NONE',
   confidence: 0,
   confirmed: false,
@@ -21,7 +21,7 @@ export default function App() {
   const { result, processLandmarks } = useGesture(settings);
 
   const handleLandmarks = useCallback(
-    (lm: Landmark[], w: number, h: number) => {
+    (lm: any[], w: number, h: number) => {
       processLandmarks(lm, w, h);
     },
     [processLandmarks],
