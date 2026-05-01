@@ -3,7 +3,8 @@ import CameraView from './components/CameraView';
 import GestureHUD from './components/GestureHUD';
 import SettingsPanel from './components/SettingsPanel';
 import { useGesture } from './hooks/useGesture';
-import { Settings, DEFAULT_SETTINGS } from './types';
+import { DEFAULT_SETTINGS } from './types';
+import type { Settings } from './types';
 
 const INITIAL_RESULT = {
   gesture: 'NONE',
