@@ -13,16 +13,22 @@ export interface MediaPipeCallbacks {
 let handsInstance: any = null;
 let cameraInstance: any = null;
 
+let isInitializing = false;
+
 /** Initialise MediaPipe Hands and start the camera loop. */
 export async function initMediaPipe(
   videoEl: HTMLVideoElement,
   callbacks: MediaPipeCallbacks,
 ): Promise<void> {
-  // Wait for MediaPipe globals to be available (CDN load delay)
-  await waitForMediaPipe();
+  if (isInitializing) return;
+  isInitializing = true;
+  
+  try {
+    // Wait for MediaPipe globals to be available (CDN load delay)
+    await waitForMediaPipe();
 
-  // Tear down any existing instance
-  stopMediaPipe();
+    // Tear down any existing instance
+    stopMediaPipe();
 
   handsInstance = new window.Hands({
     locateFile: (file: string) =>
@@ -67,6 +73,9 @@ export async function initMediaPipe(
   });
 
   await cameraInstance.start();
+  } finally {
+    isInitializing = false;
+  }
 }
 
 /** Stop the camera and MediaPipe loop. */
