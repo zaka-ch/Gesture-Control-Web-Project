@@ -46,10 +46,20 @@ export async function initMediaPipe(
     }
   });
 
+  await handsInstance.initialize();
+
+  let isProcessing = false;
   cameraInstance = new window.Camera(videoEl, {
     onFrame: async () => {
-      if (handsInstance) {
-        await handsInstance.send({ image: videoEl });
+      if (handsInstance && !isProcessing) {
+        isProcessing = true;
+        try {
+          await handsInstance.send({ image: videoEl });
+        } catch (e) {
+          console.error('MediaPipe Error:', e);
+        } finally {
+          isProcessing = false;
+        }
       }
     },
     width: 1280,
