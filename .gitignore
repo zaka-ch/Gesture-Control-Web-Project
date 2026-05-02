@@ -1,4 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+hand_landmarker.task
 node_modules/
 dist/
-.DS_Store
-*.local
+.env
