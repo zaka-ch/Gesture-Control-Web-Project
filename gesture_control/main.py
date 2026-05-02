@@ -64,7 +64,8 @@ def main():
         min_tracking_confidence=0.5
     )
 
-    smoother = GestureSmoother(buffer_size=5)
+    fist_smoother  = GestureSmoother(buffer_size=5)
+    swipe_smoother = GestureSmoother(buffer_size=4)
     dispatcher = ActionDispatcher()
     cap = cv2.VideoCapture(0)
     prev_wrist_x = None
@@ -103,27 +104,45 @@ def main():
                 for landmark in hand_landmarks:
                     landmark.x = 1.0 - landmark.x
                     
-                raw_gesture, current_wrist_x = classify_gesture(hand_landmarks, prev_wrist_x, w)
-                prev_wrist_x = current_wrist_x
-                
+                # Bug 2 fix: pass normalized wrist X coords (not pixel width)
+                curr_wrist_x = hand_landmarks[0].x
+                raw_gesture = classify_gesture(hand_landmarks, prev_wrist_x, curr_wrist_x)
+                prev_wrist_x = curr_wrist_x
+
+                # Bug 4 & 5 fix: separate smoothers, reset buffer after trigger
                 if raw_gesture == "OPEN_HAND":
                     confirmed_gesture = "OPEN_HAND"
-                    smoother.reset()
+                    fist_smoother.reset()
+                    swipe_smoother.reset()
+                elif raw_gesture in ("SWIPE_RIGHT", "SWIPE_LEFT"):
+                    confirmed_gesture = swipe_smoother.push(raw_gesture)
+                    fist_smoother.reset()
+                    if confirmed_gesture in ("SWIPE_RIGHT", "SWIPE_LEFT"):
+                        swipe_smoother.reset()
+                elif raw_gesture == "FIST":
+                    confirmed_gesture = fist_smoother.push(raw_gesture)
+                    swipe_smoother.reset()
+                    if confirmed_gesture == "FIST":
+                        fist_smoother.reset()
                 else:
-                    confirmed_gesture = smoother.push(raw_gesture)
-                
+                    confirmed_gesture = "NONE"
+                    fist_smoother.reset()
+                    swipe_smoother.reset()
+
+                # Bug 1 fix: use normalized wrist Y with corrected thresholds
                 wrist_y = hand_landmarks[0].y
-                if wrist_y < 0.33:
+                if wrist_y < 0.35:
                     current_zone = "TOP"
-                elif wrist_y > 0.66:
+                elif wrist_y > 0.65:
                     current_zone = "BOTTOM"
                 else:
                     current_zone = "MIDDLE"
-                
+
                 dispatcher.dispatch(confirmed_gesture, wrist_y)
             else:
                 prev_wrist_x = None
-                smoother.reset()
+                fist_smoother.reset()
+                swipe_smoother.reset()
 
             image_resized = cv2.resize(image, (400, 300))
             draw_zones(image_resized, 400, 300, current_zone)
