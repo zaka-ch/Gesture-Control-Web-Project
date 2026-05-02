@@ -11,6 +11,10 @@ def classify_gesture(landmarks, wrist_prev_x, wrist_curr_x):
     if not index_up and not middle_up and not ring_up and not pinky_up:
         return "FIST"
 
+    # PEACE — index and middle extended, ring and pinky curled
+    if index_up and middle_up and not ring_up and not pinky_up:
+        return "PEACE"
+
     # OPEN_HAND — all fingers extended
     if index_up and middle_up and ring_up and pinky_up:
         if wrist_prev_x is not None and wrist_curr_x is not None:

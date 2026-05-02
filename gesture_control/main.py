@@ -28,23 +28,7 @@ def draw_landmarks_custom(image, landmarks, width, height):
     for p1, p2 in HAND_CONNECTIONS:
         cv2.line(image, points[p1], points[p2], (0, 255, 0), 2)
 
-def draw_zones(frame, width, height, current_zone):
-    """Draw zone dividers and tint the current zone."""
-    y_33 = int(height * 0.33)
-    y_66 = int(height * 0.66)
-    
-    cv2.line(frame, (0, y_33), (width, y_33), (255, 255, 255), 1)
-    cv2.line(frame, (0, y_66), (width, y_66), (255, 255, 255), 1)
 
-    overlay = frame.copy()
-    if current_zone == "TOP":
-        cv2.rectangle(overlay, (0, 0), (width, y_33), (255, 0, 0), -1)      # Blue tint
-    elif current_zone == "BOTTOM":
-        cv2.rectangle(overlay, (0, y_66), (width, height), (0, 165, 255), -1) # Orange tint
-    elif current_zone == "MIDDLE":
-        cv2.rectangle(overlay, (0, y_33), (width, y_66), (128, 128, 128), -1) # Gray tint
-        
-    cv2.addWeighted(overlay, 0.2, frame, 0.8, 0, frame)
 
 def main():
     model_path = 'hand_landmarker.task'
@@ -66,6 +50,7 @@ def main():
 
     fist_smoother  = GestureSmoother(buffer_size=5)
     swipe_smoother = GestureSmoother(buffer_size=4)
+    peace_smoother = GestureSmoother(buffer_size=4)
     dispatcher = ActionDispatcher()
     cap = cv2.VideoCapture(0)
     prev_wrist_x = None
@@ -114,42 +99,47 @@ def main():
                     confirmed_gesture = "OPEN_HAND"
                     fist_smoother.reset()
                     swipe_smoother.reset()
+                    peace_smoother.reset()
                 elif raw_gesture in ("SWIPE_RIGHT", "SWIPE_LEFT"):
                     confirmed_gesture = swipe_smoother.push(raw_gesture)
                     fist_smoother.reset()
+                    peace_smoother.reset()
                     if confirmed_gesture in ("SWIPE_RIGHT", "SWIPE_LEFT"):
                         swipe_smoother.reset()
                 elif raw_gesture == "FIST":
                     confirmed_gesture = fist_smoother.push(raw_gesture)
                     swipe_smoother.reset()
+                    peace_smoother.reset()
                     if confirmed_gesture == "FIST":
                         fist_smoother.reset()
+                elif raw_gesture == "PEACE":
+                    confirmed_gesture = peace_smoother.push(raw_gesture)
+                    fist_smoother.reset()
+                    swipe_smoother.reset()
+                    if confirmed_gesture == "PEACE":
+                        peace_smoother.reset()
                 else:
                     confirmed_gesture = "NONE"
                     fist_smoother.reset()
                     swipe_smoother.reset()
+                    peace_smoother.reset()
 
-                # Bug 1 fix: use normalized wrist Y with corrected thresholds
                 wrist_y = hand_landmarks[0].y
-                if wrist_y < 0.35:
-                    current_zone = "TOP"
-                elif wrist_y > 0.65:
-                    current_zone = "BOTTOM"
-                else:
-                    current_zone = "MIDDLE"
-
                 dispatcher.dispatch(confirmed_gesture, wrist_y)
             else:
                 prev_wrist_x = None
                 fist_smoother.reset()
                 swipe_smoother.reset()
+                peace_smoother.reset()
 
             image_resized = cv2.resize(image, (400, 300))
-            draw_zones(image_resized, 400, 300, current_zone)
             
-            cv2.putText(image_resized, f"Gesture: {confirmed_gesture}", (10, 30), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            cv2.putText(image_resized, f"Zone: {current_zone}", (10, 60), 
+            status_text = "ACTIVE " if dispatcher.control_active else "PAUSED "
+            status_color = (0, 255, 0) if dispatcher.control_active else (0, 0, 255)
+            
+            cv2.putText(image_resized, status_text, (10, 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
+            cv2.putText(image_resized, f"Gesture: {confirmed_gesture}", (10, 60), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             cv2.imshow('Gesture Control Preview', image_resized)
