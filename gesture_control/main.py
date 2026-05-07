@@ -4,16 +4,12 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import os
 import urllib.request
-import threading
 import time
 import pyautogui
-from collections import deque
-
 from classifier import classify_gesture
 from smoother import GestureSmoother
-from actions import ActionDispatcher
 
-SCROLL_SENSITIVITY = 800
+pyautogui.FAILSAFE = False
 
 HAND_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 4),
@@ -23,122 +19,39 @@ HAND_CONNECTIONS = [
     (13, 17), (0, 17), (17, 18), (18, 19), (19, 20)
 ]
 
+def is_finger_extended(landmarks, tip_idx, pip_idx):
+    return landmarks[tip_idx].y < landmarks[pip_idx].y
+
+def detect_peace(landmarks):
+    """PEACE: index + middle extended, ring + pinky curled."""
+    index_up  = is_finger_extended(landmarks, 8, 6)
+    middle_up = is_finger_extended(landmarks, 12, 10)
+    ring_up   = is_finger_extended(landmarks, 16, 14)
+    pinky_up  = is_finger_extended(landmarks, 20, 18)
+    return index_up and middle_up and (not ring_up) and (not pinky_up)
+
 def draw_landmarks_custom(image, landmarks, width, height):
+    """Draws points and lines manually since mp.solutions is deprecated."""
     points = []
     for lm in landmarks:
         x = int(lm.x * width)
         y = int(lm.y * height)
         points.append((x, y))
         cv2.circle(image, (x, y), 3, (0, 0, 255), -1)
-        
     for p1, p2 in HAND_CONNECTIONS:
         cv2.line(image, points[p1], points[p2], (0, 255, 0), 2)
 
-class SharedState:
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.frame_to_show = None
-        self.running = True
-        self.confirmed_gesture = "NONE"
-        self.raw_y = None
-        self.new_frame = False
+def draw_zones(frame, width, height, current_zone):
+    """Draw 2-zone divider and tint."""
+    y_mid = int(height * 0.50)
+    cv2.line(frame, (0, y_mid), (width, y_mid), (255, 255, 255), 1)
 
-shared_state = SharedState()
-
-def camera_thread_func(options):
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-    
-    fist_smoother  = GestureSmoother(buffer_size=5)
-    swipe_smoother = GestureSmoother(buffer_size=4)
-    peace_smoother = GestureSmoother(buffer_size=4)
-    prev_wrist_x = None
-
-    with vision.HandLandmarker.create_from_options(options) as landmarker:
-        while True:
-            with shared_state.lock:
-                if not shared_state.running:
-                    break
-                    
-            success, image = cap.read()
-            if not success:
-                continue
-
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
-            results = landmarker.detect(mp_image)
-            
-            image = cv2.flip(image, 1)
-            h, w, _ = image.shape
-            
-            raw_gesture = "NONE"
-            confirmed_gesture = "NONE"
-            raw_y = None
-            
-            if results.hand_landmarks and len(results.hand_landmarks) > 0:
-                hand_landmarks = results.hand_landmarks[0]
-                
-                # Invert X for correct drawing
-                for landmark in hand_landmarks:
-                    landmark.x = 1.0 - landmark.x
-                
-                draw_landmarks_custom(image, hand_landmarks, w, h)
-                
-                # Revert X for classification
-                for landmark in hand_landmarks:
-                    landmark.x = 1.0 - landmark.x
-                    
-                curr_wrist_x = hand_landmarks[0].x
-                raw_gesture = classify_gesture(hand_landmarks, prev_wrist_x, curr_wrist_x)
-                prev_wrist_x = curr_wrist_x
-                
-                # Use landmark[5] (index finger base) for magic scroll mapping
-                raw_y = hand_landmarks[5].y
-
-                if raw_gesture == "OPEN_HAND":
-                    confirmed_gesture = "OPEN_HAND"
-                    fist_smoother.reset()
-                    swipe_smoother.reset()
-                    peace_smoother.reset()
-                elif raw_gesture in ("SWIPE_RIGHT", "SWIPE_LEFT"):
-                    confirmed_gesture = swipe_smoother.push(raw_gesture)
-                    fist_smoother.reset()
-                    peace_smoother.reset()
-                    if confirmed_gesture in ("SWIPE_RIGHT", "SWIPE_LEFT"):
-                        swipe_smoother.reset()
-                elif raw_gesture == "FIST":
-                    confirmed_gesture = fist_smoother.push(raw_gesture)
-                    swipe_smoother.reset()
-                    peace_smoother.reset()
-                    if confirmed_gesture == "FIST":
-                        fist_smoother.reset()
-                elif raw_gesture == "PEACE":
-                    confirmed_gesture = peace_smoother.push(raw_gesture)
-                    fist_smoother.reset()
-                    swipe_smoother.reset()
-                    if confirmed_gesture == "PEACE":
-                        peace_smoother.reset()
-                else:
-                    confirmed_gesture = "NONE"
-                    fist_smoother.reset()
-                    swipe_smoother.reset()
-                    peace_smoother.reset()
-            else:
-                prev_wrist_x = None
-                fist_smoother.reset()
-                swipe_smoother.reset()
-                peace_smoother.reset()
-
-            image_resized = cv2.resize(image, (400, 300))
-            
-            with shared_state.lock:
-                shared_state.frame_to_show = image_resized
-                shared_state.confirmed_gesture = confirmed_gesture
-                shared_state.raw_y = raw_y
-                shared_state.new_frame = True
-
-    cap.release()
+    overlay = frame.copy()
+    if current_zone == "TOP":
+        cv2.rectangle(overlay, (0, 0), (width, y_mid), (255, 0, 0), -1)       # Blue tint
+    elif current_zone == "BOTTOM":
+        cv2.rectangle(overlay, (0, y_mid), (width, height), (0, 165, 255), -1) # Orange tint
+    cv2.addWeighted(overlay, 0.2, frame, 0.8, 0, frame)
 
 def main():
     model_path = 'hand_landmarker.task'
@@ -158,83 +71,144 @@ def main():
         min_tracking_confidence=0.5
     )
 
-    dispatcher = ActionDispatcher()
-    
-    cam_thread = threading.Thread(target=camera_thread_func, args=(options,))
-    cam_thread.start()
+    fist_smoother  = GestureSmoother(buffer_size=5)
+    swipe_smoother = GestureSmoother(buffer_size=4)
+    peace_smoother = GestureSmoother(buffer_size=4)
 
-    raw_y_history = deque(maxlen=5)
-    previous_smooth_y = None
-    
-    try:
-        while True:
-            with shared_state.lock:
-                if not shared_state.new_frame:
-                    frame_ready = False
-                else:
-                    frame = shared_state.frame_to_show
-                    confirmed_gesture = shared_state.confirmed_gesture
-                    raw_y = shared_state.raw_y
-                    shared_state.new_frame = False
-                    frame_ready = True
-                    
-            if not frame_ready:
-                time.sleep(0.01)
+    # Throttle timestamps
+    last_fist_time   = 0
+    last_peace_time  = 0
+    last_swipe_time  = 0
+    last_scroll_time = 0
+
+    # Control toggle — starts paused, PEACE gesture activates
+    control_active = False
+
+    cap = cv2.VideoCapture(0)
+    prev_wrist_x = None
+
+    with vision.HandLandmarker.create_from_options(options) as landmarker:
+        while cap.isOpened():
+            success, image = cap.read()
+            if not success:
                 continue
 
-            # Route FIST, SWIPE, PEACE to the action dispatcher
-            gesture_for_dispatcher = confirmed_gesture
-            if gesture_for_dispatcher == "OPEN_HAND":
-                gesture_for_dispatcher = "NONE" # Block old scroll logic in actions.py
-                
-            # We pass 0 for wrist_y as the old zone logic is ignored anyway
-            dispatcher.dispatch(gesture_for_dispatcher, 0)
-            
-            control_active = dispatcher.control_active
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
+            results = landmarker.detect(mp_image)
 
-            # Magic Scroll Implementation
-            if not control_active or confirmed_gesture != "OPEN_HAND" or raw_y is None:
-                raw_y_history.clear()
-                previous_smooth_y = None
+            # Flip for natural mirror preview
+            image = cv2.flip(image, 1)
+            h, w, _ = image.shape
+
+            confirmed_gesture = "NONE"
+            current_zone      = "NONE"
+            now = time.time()
+
+            if results.hand_landmarks and len(results.hand_landmarks) > 0:
+                hand_landmarks = results.hand_landmarks[0]
+
+                # Flip X for drawing on mirrored image
+                for lm in hand_landmarks:
+                    lm.x = 1.0 - lm.x
+                draw_landmarks_custom(image, hand_landmarks, w, h)
+                # Restore raw X for classification
+                for lm in hand_landmarks:
+                    lm.x = 1.0 - lm.x
+
+                # --- Zone (2 zones, landmark[5] as reference) ---
+                hand_y = hand_landmarks[5].y
+                current_zone = "TOP" if hand_y < 0.50 else "BOTTOM"
+
+                # --- Classify base gesture ---
+                curr_wrist_x = hand_landmarks[0].x
+                raw_gesture  = classify_gesture(hand_landmarks, prev_wrist_x, curr_wrist_x)
+                prev_wrist_x = curr_wrist_x
+
+                # --- PEACE detection (overrides raw_gesture if true) ---
+                is_peace = detect_peace(hand_landmarks)
+
+                # --- Smooth & dispatch ---
+                if is_peace:
+                    # Peace toggles control_active — always works regardless of state
+                    conf_peace = peace_smoother.push("PEACE")
+                    fist_smoother.reset()
+                    swipe_smoother.reset()
+                    confirmed_gesture = "PEACE"
+                    if conf_peace == "PEACE" and now - last_peace_time > 2.0:
+                        control_active = not control_active
+                        last_peace_time = now
+                        peace_smoother.reset()
+
+                elif raw_gesture == "OPEN_HAND":
+                    confirmed_gesture = "OPEN_HAND"
+                    fist_smoother.reset()
+                    swipe_smoother.reset()
+                    peace_smoother.reset()
+                    # Scroll only when active
+                    if control_active and now - last_scroll_time > 0.06:
+                        if current_zone == "TOP":
+                            pyautogui.scroll(12)
+                        else:
+                            pyautogui.scroll(-12)
+                        last_scroll_time = now
+
+                elif raw_gesture == "FIST":
+                    conf_fist = fist_smoother.push("FIST")
+                    swipe_smoother.reset()
+                    peace_smoother.reset()
+                    confirmed_gesture = "FIST"
+                    if control_active and conf_fist == "FIST" and now - last_fist_time > 1.0:
+                        pyautogui.press('space')
+                        last_fist_time = now
+                        fist_smoother.reset()
+
+                elif raw_gesture in ("SWIPE_RIGHT", "SWIPE_LEFT"):
+                    conf_swipe = swipe_smoother.push(raw_gesture)
+                    fist_smoother.reset()
+                    peace_smoother.reset()
+                    confirmed_gesture = raw_gesture
+                    if control_active and conf_swipe in ("SWIPE_RIGHT", "SWIPE_LEFT") and now - last_swipe_time > 1.2:
+                        key = 'right' if conf_swipe == "SWIPE_RIGHT" else 'left'
+                        pyautogui.press(key)
+                        last_swipe_time = now
+                        swipe_smoother.reset()
+
+                else:
+                    confirmed_gesture = "NONE"
+                    fist_smoother.reset()
+                    swipe_smoother.reset()
+                    peace_smoother.reset()
+
             else:
-                raw_y_history.append(raw_y)
-                if len(raw_y_history) == 5:
-                    smooth_y = (raw_y_history[4] * 0.5) + (raw_y_history[3] * 0.25) + \
-                               (raw_y_history[2] * 0.15) + (raw_y_history[1] * 0.07) + \
-                               (raw_y_history[0] * 0.03)
-                               
-                    if previous_smooth_y is not None:
-                        dy = smooth_y - previous_smooth_y
-                        
-                        # Deadzone to ignore micro-tremors
-                        if abs(dy) < 0.003:
-                            dy = 0
-                            
-                        scroll_amount = int(-dy * SCROLL_SENSITIVITY)
-                        
-                        if scroll_amount != 0:
-                            pyautogui.scroll(scroll_amount)
-                            
-                    previous_smooth_y = smooth_y
+                prev_wrist_x = None
+                fist_smoother.reset()
+                swipe_smoother.reset()
+                peace_smoother.reset()
 
-            frame_copy = frame.copy()
-            status_text = "ACTIVE " if control_active else "PAUSED "
-            status_color = (0, 255, 0) if control_active else (0, 0, 255)
-            
-            cv2.putText(frame_copy, status_text, (10, 30), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
-            cv2.putText(frame_copy, f"Gesture: {confirmed_gesture}", (10, 60), 
+            # --- Draw preview ---
+            image_resized = cv2.resize(image, (400, 300))
+            draw_zones(image_resized, 400, 300, current_zone)
+
+            cv2.putText(image_resized, f"Gesture: {confirmed_gesture}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            cv2.putText(image_resized, f"Zone: {current_zone}", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            # Status indicator
+            if control_active:
+                cv2.putText(image_resized, "ACTIVE", (10, 285),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            else:
+                cv2.putText(image_resized, "PAUSED", (10, 285),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-            cv2.imshow('Gesture Control Preview', frame_copy)
-            
+            cv2.imshow('Gesture Control Preview', image_resized)
+
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-    finally:
-        with shared_state.lock:
-            shared_state.running = False
-        cam_thread.join()
-        cv2.destroyAllWindows()
+
+    cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     main()
